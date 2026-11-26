@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 from src.config import FORBIDDEN, TARGET
-from src.features import build_features, feature_columns
+from src.features import build_features, encode_weather, feature_columns
 from src.ingest import load_raw
 
 
@@ -65,6 +65,11 @@ def test_rolling_std_excludes_today(feats):
     assert all(d in by_date.index for d in window), "window dates missing"
     expected = by_date[window].std(ddof=0)
     assert feats.set_index("dteday")["cnt_roll_std_7"][date] == pytest.approx(expected)
+
+
+def test_weather_encoder_rejects_unknown_labels():
+    with pytest.raises(ValueError):
+        encode_weather(pd.Series(["GOOD", "MISTY", "BAD", "STORMY"]))
 
 
 def test_no_missing_values(feats):
