@@ -57,7 +57,7 @@ def temporal_split(df: pd.DataFrame):
     """Split by date, never at random. A random split on a time series
     puts tomorrow in train and today in test."""
     train = df[df.dteday <= TRAIN_END]
-    valid = df[(df.dteday >= TRAIN_END) & (df.dteday <= VALID_END)]
+    valid = df[(df.dteday > TRAIN_END) & (df.dteday <= VALID_END)]
     test = df[df.dteday > VALID_END]
     return train, valid, test
 
