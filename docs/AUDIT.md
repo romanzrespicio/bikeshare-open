@@ -7,7 +7,7 @@ to audit. Instead I audited a separate copy of the starter in which I
 planted three faults, so the auditor's answer could be checked against a
 known one.
 
-- Repository: `bikeshare-audit-target` (URL: TO BE ADDED when pushed; local
+- Repository: `bikeshare-audit-target` (https://github.com/romanzrespicio/bikeshare-audit-target, private; local
   path `/Users/romanrespicio/bikeshare-audit-target`)
 - Commits: `ebb53d8` unmodified starter, `252498f` the planted faults. The
   commit message ("Add demand_index feature and tidy features.py") does not
