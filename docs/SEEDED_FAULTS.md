@@ -17,6 +17,7 @@ payload the harness sends.
 | 2 | `.shift(1)` deleted from `cnt_roll_7` | `test_rolling_mean_excludes_today` | exit 2 | 6 (second attempt; first run derailed) |
 | 3 | `raise` removed from `encode_weather` | none at first; `test_weather_encoder_rejects_unknown_labels` after we added it | silent at first; exit 2 after | 6 |
 | 4 | tampered CSV copied into `data/raw/` from Bash | none at first; `test_every_raw_column_is_classified` after we added it | silent (cannot see it) | not an agent fix |
+| 5 | `temporal_split` includes `TRAIN_END` in validation | `test_splits_are_ordered_in_time`, `test_no_overlapping_dates` | silent (leakage hook only) | manual |
 
 ## Exercise 1: the failing test, before the feature existed
 
@@ -80,7 +81,6 @@ tests/test_leakage.py:31: AssertionError
 =========================== short test summary info ============================
 FAILED tests/test_leakage.py::test_no_forbidden_features - AssertionError: fo...
 1 failed, 14 passed in 2.48s
-make: *** [test] Error 1
 make test exit: 2
 ```
 
@@ -193,7 +193,7 @@ E             Expected: 4414.857142857143 ± 0.00441486
 tests/test_leakage.py:57: AssertionError
 =========================== short test summary info ============================
 FAILED tests/test_leakage.py::test_rolling_mean_excludes_today - assert np.fl...
-1 failed, 7 passed in 3.47s
+1 failed, 14 passed in 3.47s
 hook exit code: 2
 ```
 
@@ -385,3 +385,89 @@ Its limit: it catches a new or renamed column, not edited values inside
 existing columns. Only the hash check catches that, and we did not
 implement one. The raw file was restored with `git checkout` and its
 sha256 again begins `a6bed1577f6e4de5`.
+
+## Fault 5: `temporal_split` places the train end date into validation
+
+Commit: seeded b234b58.
+
+```diff
+diff --git a/src/train.py b/src/train.py
+index 75ad607..b81444e 100644
+--- a/src/train.py
++++ b/src/train.py
+@@ -57,7 +57,7 @@ def temporal_split(df: pd.DataFrame):
+     """Split by date, never at random. A random split on a time series
+     puts tomorrow in train and today in test."""
+     train = df[df.dteday <= TRAIN_END]
+-    valid = df[(df.dteday > TRAIN_END) & (df.dteday <= VALID_END)]
++    valid = df[(df.dteday >= TRAIN_END) & (df.dteday <= VALID_END)]
+     test = df[df.dteday > VALID_END]
+     return train, valid, test
+```
+
+`make test`:
+
+```
+python -m pytest tests/ -q
+...............FF                                                        [100%]
+=================================== FAILURES ===================================
+_______________________ test_splits_are_ordered_in_time ________________________
+
+splits = (        dteday  instant  season  ...  cnt_lag_7   cnt_roll_7 cnt_roll_std_7
+0   2011-01-10     10.0  WINTER  ...     ...57     820.919420
+713  2012-12-31    731.0  WINTER  ...      920.0  1531.428571     821.327646
+
+[184 rows x 29 columns])
+
+    def test_splits_are_ordered_in_time(splits):
+        train, valid, test = splits
+>       assert train.dteday.max() < valid.dteday.min()
+E       AssertionError: assert Timestamp('2011-12-31 00:00:00') < Timestamp('2011-12-31 00:00:00')
+E        +  where Timestamp('2011-12-31 00:00:00') = max()
+E        +    where max = 0     2011-01-10\n1     2011-01-11\n2     2011-01-12\n3     2011-01-13\n4     2011-01-14\n         ...    \n343   2011-12-27\n344   2011-12-28\n345   2011-12-29\n346   2011-12-30\n347   2011-12-31\nName: dteday, Length: 348, dtype: datetime64[us].max
+E        +      where 0     2011-01-10\n1     2011-01-11\n2     2011-01-12\n3     2011-01-13\n4     2011-01-14\n         ...    \n343   2011-12-27\n344   2011-12-28\n345   2011-12-29\n346   2011-12-30\n347   2011-12-31\nName: dteday, Length: 348, dtype: datetime64[us] =         dteday  instant  season  ...  cnt_lag_7   cnt_roll_7 cnt_roll_std_7\n0   2011-01-10     10.0  WINTER  ...     1...143     640.927326\n347 2011-12-31    365.0  WINTER  ...     1011.0  1709.714286     790.808215\n\n[348 rows x 29 columns].dteday
+E        +  and   Timestamp('2011-12-31 00:00:00') = min()
+E        +    where min = 347   2011-12-31\n348   2012-01-01\n349   2012-01-02\n350   2012-01-03\n351   2012-01-04\n         ...    \n525   2012-06-26\n526   2012-06-27\n527   2012-06-28\n528   2012-06-29\n529   2012-06-30\nName: dteday, Length: 183, dtype: datetime64[us].min
+E        +      where 347   2011-12-31\n348   2012-01-01\n349   2012-01-02\n350   2012-01-03\n351   2012-01-04\n         ...    \n525   2012-06-26\n526   2012-06-27\n527   2012-06-28\n528   2012-06-29\n529   2012-06-30\nName: dteday, Length: 183, dtype: datetime64[us] =         dteday  instant  season  ...  cnt_lag_7   cnt_roll_7 cnt_roll_std_7\n347 2011-12-31    365.0  WINTER  ...     1...143     528.607451\n529 2012-06-30    547.0  SUMMER  ...     7458.0  6892.428571     640.767811\n\n[183 rows x 29 columns].dteday
+
+tests/test_split.py:23: AssertionError
+__________________________ test_no_overlapping_dates ___________________________
+
+splits = (        dteday  instant  season  ...  cnt_lag_7   cnt_roll_7 cnt_roll_std_7
+0   2011-01-10     10.0  WINTER  ...     ...57     820.919420
+713  2012-12-31    731.0  WINTER  ...      920.0  1531.428571     821.327646
+
+[184 rows x 29 columns])
+
+    def test_no_overlapping_dates(splits):
+        train, valid, test = splits
+        dates = pd.concat([train.dteday, valid.dteday, test.dteday])
+>       assert dates.is_unique
+E       assert False
+E        +  where False = 0     2011-01-10\n1     2011-01-11\n2     2011-01-01\n2     2011-01-12\n3     2011-01-13\n4     2011-01-14\n         ...    \n709   2012-12-27\n710   2012-12-28\n711   2012-12-29\n712   2012-12-30\n713   2012-12-31\nName: dteday, Length: 715, dtype: datetime64[us].is_unique
+
+tests/test_split.py:30: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_split.py::test_splits_are_ordered_in_time - AssertionError:...
+FAILED tests/test_split.py::test_no_overlapping_dates - assert False
+2 failed, 15 passed in 2.28s
+make: *** [test] Error 1
+make test exit: 2
+```
+
+Hook stderr:
+
+The PostToolUse hook (`.claude/hooks/check_leakage.sh`) only runs
+`tests/test_leakage.py`. Because this fault is in `src/train.py` and is a
+split-boundary bug rather than a feature-leakage bug, the leakage suite stays
+green and the hook is silent:
+
+```
+python -m pytest tests/test_leakage.py -q
+.........                                                                [100%]
+9 passed in 0.53s
+hook exit code: 0
+```
+
+The split tests in `tests/test_split.py` catch the overlap, but only the
+full `make test` target runs them.
